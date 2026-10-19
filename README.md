@@ -17,7 +17,7 @@ TeX Live 2026, all in one Docker container.
 docker compose up --build -d
 ```
 
-Then open <http://localhost:8090>. The port is only bound to `127.0.0.1`, so the editor isn't reachable
+Then open <http://localhost:14738>. The port is only bound to `127.0.0.1`, so the editor isn't reachable
 from other machines. There is no login. Use a different port with `HOST_PORT=9000 docker compose up -d`,
 or put `HOST_PORT=9000` in a `.env` file.
 

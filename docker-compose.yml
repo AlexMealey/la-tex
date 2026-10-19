@@ -4,7 +4,7 @@ services:
     image: latex-editor:local
     ports:
       # Local only: reachable from this machine, not the network.
-      - "127.0.0.1:${HOST_PORT:-8090}:8080"
+      - "127.0.0.1:${HOST_PORT:-14738}:8080"
     volumes:
       # ./data/projects (your files) and ./data/texmf (packages installed from the UI)
       - ./data:/data
