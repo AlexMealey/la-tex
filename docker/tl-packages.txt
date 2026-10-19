@@ -1,0 +1,27 @@
+# Packages installed on top of scheme-basic (which already provides hyperref, fancyhdr,
+# verbatim, tabularx, color/dvipsnames, latexsym, fontenc, ec and glyphtounicode).
+# Anything else can be installed at runtime from the Packages dialog. Packages that ship
+# programs (e.g. biber) cannot be installed that way: add them here and rebuild.
+
+# Build tool
+latexmk
+
+# Packages used by the resume preamble
+preprint
+titlesec
+marvosym
+enumitem
+fontawesome5
+fira
+fontaxes
+mweights
+xkeyval
+contour
+ulem
+tex-gyre
+
+# XeLaTeX / LuaLaTeX engine support
+xetex
+fontspec
+luaotfload
+luatexbase

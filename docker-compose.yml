@@ -1,0 +1,15 @@
+services:
+  latex-editor:
+    build: .
+    image: latex-editor:local
+    ports:
+      # Local only: reachable from this machine, not the network.
+      - "127.0.0.1:${HOST_PORT:-8090}:8080"
+    volumes:
+      # ./data/projects (your files) and ./data/texmf (packages installed from the UI)
+      - ./data:/data
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      COMPILE_TIMEOUT_MS: 60000
+    restart: unless-stopped

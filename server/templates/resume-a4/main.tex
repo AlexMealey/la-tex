@@ -1,0 +1,102 @@
+\documentclass[a4paper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage{fontawesome5}
+\usepackage{tabularx}
+% only for pdflatex
+% \input{glyphtounicode}
+
+% fontawesome
+\usepackage{fontawesome5}
+
+% fixed width
+\usepackage[scale=0.90,lf]{FiraMono}
+
+% light-grey
+\definecolor{light-grey}{gray}{0.83}
+\definecolor{dark-grey}{gray}{0.3}
+\definecolor{text-grey}{gray}{.08}
+
+\DeclareRobustCommand{\ebseries}{\fontseries{eb}\selectfont}
+\DeclareTextFontCommand{\texteb}{\ebseries}
+
+% custom underilne
+\usepackage{contour}
+\usepackage[normalem]{ulem}
+\renewcommand{\ULdepth}{1.6pt}
+\contourlength{0.8pt}
+\newcommand{\myuline}[1]{%
+  \uline{\phantom{#1}}%
+  \llap{\contour{white}{#1}}%
+}
+
+
+% custom font: helvetica-style
+\usepackage{tgheros}
+\renewcommand*\familydefault{\sfdefault}
+%% Only if the base font of the document is to be sans serif
+\usepackage[T1]{fontenc}
+
+% ---------------------------------------------------------------------------
+% Sample content: replace with your own.
+% ---------------------------------------------------------------------------
+
+\newcommand{\resumesection}[1]{%
+  \vspace{10pt}%
+  {\large\bfseries\color{text-grey}\myuline{#1}}\par
+  \vspace{4pt}%
+}
+
+\newcommand{\resumeentry}[4]{%
+  \noindent
+  \begin{tabularx}{\textwidth}{@{}X r@{}}
+    \textbf{#1} & \color{dark-grey}#2 \\
+    \textit{\small #3} & \color{dark-grey}\small #4 \\
+  \end{tabularx}%
+}
+
+\begin{document}
+\color{text-grey}
+
+\begin{center}
+  {\Huge\texteb{Alex Example}} \\[6pt]
+  \small
+  \faEnvelope\ \href{mailto:alex@example.com}{alex@example.com} \quad
+  \faPhone\ +44 20 7946 0000 \quad
+  \faGithub\ \href{https://github.com/example}{github.com/example} \quad
+  \faLinkedin\ \href{https://www.linkedin.com/in/example}{linkedin.com/in/example}
+\end{center}
+
+\resumesection{Experience}
+
+\resumeentry{Senior Software Engineer}{London, UK}{Example Ltd}{2022 -- Present}
+\begin{itemize}[leftmargin=*, itemsep=1pt, topsep=2pt]
+  \item Led the migration of a monolith to services written in \texttt{TypeScript} and \texttt{Go}.
+  \item Cut build times by 60\% by introducing incremental, cached pipelines.
+\end{itemize}
+
+\resumeentry{Software Engineer}{Manchester, UK}{Sample Corp}{2019 -- 2022}
+\begin{itemize}[leftmargin=*, itemsep=1pt, topsep=2pt]
+  \item Built internal tooling used by 200+ engineers.
+  \item Mentored three junior developers.
+\end{itemize}
+
+\resumesection{Education}
+
+\resumeentry{BSc Computer Science}{Leeds, UK}{University of Somewhere}{2015 -- 2019}
+
+\resumesection{Skills}
+
+\noindent
+\textbf{Languages:} \texttt{TypeScript}, \texttt{Python}, \texttt{Go}, \texttt{SQL} \\
+\textbf{Tools:} \texttt{Docker}, \texttt{Kubernetes}, \texttt{PostgreSQL}, \LaTeX
+
+\end{document}
