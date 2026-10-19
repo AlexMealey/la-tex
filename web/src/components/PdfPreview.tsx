@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
+
+const RESIZE_SETTLE_MS = 150;
 
 const PAPER_SIZES = [
   { label: 'A4', w: 595.28, h: 841.89 },
@@ -52,7 +54,31 @@ export default function PdfPreview({ url }: { url: string | null }) {
     }
   };
 
-  const pageWidth = Math.max(100, (width - 32) * zoom);
+  // Re-rasterising every page on each resize frame makes the canvases flash. While the size is changing, stretch the
+  // existing pages with CSS zoom and only re-render at the new width once it has settled.
+  const targetWidth = Math.max(100, (width - 32) * zoom);
+  const [renderWidth, setRenderWidth] = useState(targetWidth);
+  const scrollFraction = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (targetWidth === renderWidth) return;
+    if (numPages === 0) {
+      setRenderWidth(targetWidth);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const el = scrollRef.current;
+      if (el && !restoring.current) scrollFraction.current = el.scrollTop / el.scrollHeight;
+      setRenderWidth(targetWidth);
+    }, RESIZE_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [targetWidth, renderWidth, numPages]);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && scrollFraction.current !== null) el.scrollTop = scrollFraction.current * el.scrollHeight;
+    scrollFraction.current = null;
+  }, [renderWidth]);
 
   return (
     <div className="pdf-preview">
@@ -88,31 +114,33 @@ export default function PdfPreview({ url }: { url: string | null }) {
         {!url ? (
           <div className="placeholder">Compile the project to see the PDF.</div>
         ) : (
-          <Document
-            file={url}
-            onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-            onLoadError={() => (restoring.current = false)}
-            loading={<div className="placeholder">Loading PDF…</div>}
-            error={<div className="placeholder">No PDF was produced. Check the log for errors.</div>}
-          >
-            {Array.from({ length: numPages }, (_, i) => (
-              <Page
-                key={i}
-                className="pdf-page"
-                pageNumber={i + 1}
-                width={pageWidth}
-                onLoadSuccess={
-                  i === 0
-                    ? (page) => {
-                        const [x0, y0, x1, y1] = page.view;
-                        setSize(describePageSize(x1 - x0, y1 - y0));
-                      }
-                    : undefined
-                }
-                onRenderSuccess={onPageRendered}
-              />
-            ))}
-          </Document>
+          <div className="pdf-pages" style={{ zoom: targetWidth / renderWidth }}>
+            <Document
+              file={url}
+              onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+              onLoadError={() => (restoring.current = false)}
+              loading={<div className="placeholder">Loading PDF…</div>}
+              error={<div className="placeholder">No PDF was produced. Check the log for errors.</div>}
+            >
+              {Array.from({ length: numPages }, (_, i) => (
+                <Page
+                  key={i}
+                  className="pdf-page"
+                  pageNumber={i + 1}
+                  width={renderWidth}
+                  onLoadSuccess={
+                    i === 0
+                      ? (page) => {
+                          const [x0, y0, x1, y1] = page.view;
+                          setSize(describePageSize(x1 - x0, y1 - y0));
+                        }
+                      : undefined
+                  }
+                  onRenderSuccess={onPageRendered}
+                />
+              ))}
+            </Document>
+          </div>
         )}
       </div>
     </div>
