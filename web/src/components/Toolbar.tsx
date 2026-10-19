@@ -41,7 +41,7 @@ export default function Toolbar(props: Props) {
           <option value="lualatex">LuaLaTeX</option>
         </select>
       </label>
-      <button className="btn primary" onClick={props.onCompile} disabled={compiling} title="Compile (Ctrl/⌘ + Enter)">
+      <button className="btn primary" onClick={props.onCompile} disabled={compiling} title="Compile (Ctrl/⌘ + S or Ctrl/⌘ + Enter)">
         {compiling ? (
           <>
             <span className="spinner" /> Compiling…

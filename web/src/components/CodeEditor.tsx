@@ -11,18 +11,17 @@ const latex = StreamLanguage.define(stex);
 interface Props {
   value: string;
   onChange: (value: string) => void;
-  onSave: () => void;
   onCompile: () => void;
   /** Scroll to and select this line; `nonce` lets the same line be requested twice. */
   jumpTo: { line: number; nonce: number } | null;
 }
 
-export default function CodeEditor({ value, onChange, onSave, onCompile, jumpTo }: Props) {
+export default function CodeEditor({ value, onChange, onCompile, jumpTo }: Props) {
   const dark = usePrefersDark();
   const viewRef = useRef<EditorView | null>(null);
   const pendingJump = useRef(jumpTo);
-  const handlers = useRef({ onSave, onCompile });
-  handlers.current = { onSave, onCompile };
+  const handlers = useRef({ onCompile });
+  handlers.current = { onCompile };
 
   const extensions = useMemo(
     () => [
@@ -30,7 +29,6 @@ export default function CodeEditor({ value, onChange, onSave, onCompile, jumpTo 
       EditorView.lineWrapping,
       Prec.highest(
         keymap.of([
-          { key: 'Mod-s', preventDefault: true, run: () => (handlers.current.onSave(), true) },
           { key: 'Mod-Enter', preventDefault: true, run: () => (handlers.current.onCompile(), true) },
         ]),
       ),

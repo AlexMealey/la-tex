@@ -154,6 +154,18 @@ export default function EditorPage({ projectId }: { projectId: string }) {
     save().catch(fail);
   }, [save]);
 
+  // Ctrl/⌘+S anywhere on the page: save and recompile (just save if a compile is running).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== 's') return;
+      e.preventDefault();
+      if (compilingRef.current) saveNow();
+      else compile();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [compile, saveNow]);
+
   // File operations -------------------------------------------------------
 
   const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name);
@@ -344,7 +356,6 @@ export default function EditorPage({ projectId }: { projectId: string }) {
                 key={open.path}
                 value={open.content}
                 onChange={onChange}
-                onSave={saveNow}
                 onCompile={compile}
                 jumpTo={jumpTo}
               />

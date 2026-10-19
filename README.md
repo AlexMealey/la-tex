@@ -4,7 +4,7 @@ A small self-hosted, Overleaf-style LaTeX editor: React front end, Node/Express 
 TeX Live 2026, all in one Docker container.
 
 - Multi-file projects: file tree, uploads (drag and drop), rename and move, and a choice of main file
-- CodeMirror editor with LaTeX highlighting. Changes autosave after 1 s; `Ctrl/⌘+S` saves straight away and `Ctrl/⌘+Enter` compiles
+- CodeMirror editor with LaTeX highlighting. Changes autosave after 1 s; `Ctrl/⌘+S` saves and recompiles (`Ctrl/⌘+Enter` also compiles)
 - Compiles with pdfLaTeX (the default), XeLaTeX or LuaLaTeX through `latexmk`
 - PDF preview with a page-size badge (A4 / Letter / …), plus **Download PDF** and **Source ZIP**
 - Import an Overleaf "Download Source" ZIP as a new project
