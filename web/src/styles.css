@@ -532,11 +532,10 @@ a:focus-visible {
   min-height: 0;
 }
 .sidebar {
-  width: 240px;
   flex-shrink: 0;
-  overflow: auto;
+  min-width: 0;
+  overflow: hidden auto;
   background: var(--surface);
-  border-right: 1px solid var(--border);
 }
 .split {
   flex: 1;
@@ -866,9 +865,8 @@ a:focus-visible {
     flex-direction: column;
   }
   .sidebar {
-    width: auto;
+    width: auto !important;
     max-height: 28vh;
-    border-right: none;
     border-bottom: 1px solid var(--border);
   }
   .split {

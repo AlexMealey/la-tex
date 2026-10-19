@@ -24,6 +24,7 @@ interface OpenFile {
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|svg|webp|bmp)$/i;
 const AUTOSAVE_MS = 1000;
+const SIDEBAR_WIDTH = 240;
 
 export default function EditorPage({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -39,6 +40,7 @@ export default function EditorPage({ projectId }: { projectId: string }) {
   const [packageModal, setPackageModal] = useState<{ install?: string[] } | null>(null);
   const [jumpTo, setJumpTo] = useState<{ line: number; nonce: number } | null>(null);
   const [split, setSplit] = useState(50);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_WIDTH);
 
   const projectRef = useRef(project);
   projectRef.current = project;
@@ -47,6 +49,7 @@ export default function EditorPage({ projectId }: { projectId: string }) {
   const saveTimer = useRef<number | undefined>(undefined);
   const compilingRef = useRef(false);
   const splitRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
 
   const fail = (err: unknown) => setActionError((err as Error).message);
 
@@ -285,14 +288,16 @@ export default function EditorPage({ projectId }: { projectId: string }) {
     [compile],
   );
 
-  // Draggable divider between editor and PDF.
-  function startDrag(e: PointerEvent<HTMLDivElement>) {
-    const container = splitRef.current;
+  // Draggable dividers: sidebar width, and the split between editor and PDF.
+  function startDrag(
+    e: PointerEvent<HTMLDivElement>,
+    container: HTMLDivElement | null,
+    onMove: (x: number, rect: DOMRect) => void,
+  ) {
     if (!container) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const rect = container.getBoundingClientRect();
-    const move = (ev: globalThis.PointerEvent) =>
-      setSplit(Math.min(80, Math.max(20, ((ev.clientX - rect.left) / rect.width) * 100)));
+    const move = (ev: globalThis.PointerEvent) => onMove(ev.clientX - rect.left, rect);
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
@@ -300,6 +305,11 @@ export default function EditorPage({ projectId }: { projectId: string }) {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }
+
+  const startSidebarDrag = (e: PointerEvent<HTMLDivElement>) =>
+    startDrag(e, workspaceRef.current, (x, rect) => setSidebarWidth(Math.min(rect.width / 2, Math.max(0, x))));
+  const startSplitDrag = (e: PointerEvent<HTMLDivElement>) =>
+    startDrag(e, splitRef.current, (x, rect) => setSplit(Math.min(80, Math.max(20, (x / rect.width) * 100))));
 
   if (loadError) {
     return (
@@ -332,8 +342,8 @@ export default function EditorPage({ projectId }: { projectId: string }) {
           </button>
         </div>
       )}
-      <div className="workspace">
-        <aside className="sidebar">
+      <div className="workspace" ref={workspaceRef}>
+        <aside className="sidebar" style={{ width: sidebarWidth }}>
           <FileTree
             files={project.files}
             activePath={open?.path ?? null}
@@ -347,6 +357,14 @@ export default function EditorPage({ projectId }: { projectId: string }) {
             onUpload={upload}
           />
         </aside>
+        <div
+          className="divider"
+          onPointerDown={startSidebarDrag}
+          onDoubleClick={() => setSidebarWidth(SIDEBAR_WIDTH)}
+          role="separator"
+          aria-orientation="vertical"
+          title="Drag to resize, double-click to reset"
+        />
         <div className="split" ref={splitRef}>
           <section className="editor-pane" style={{ flexBasis: `${split}%` }}>
             {open && <div className="pane-title">{open.path}</div>}
@@ -373,7 +391,7 @@ export default function EditorPage({ projectId }: { projectId: string }) {
               </div>
             )}
           </section>
-          <div className="divider" onPointerDown={startDrag} role="separator" aria-orientation="vertical" />
+          <div className="divider" onPointerDown={startSplitDrag}role="separator" aria-orientation="vertical" />
           <section className="pdf-pane">
             <PdfPreview url={pdfVersion !== null ? pdfUrl(projectId, pdfVersion) : null} />
           </section>
