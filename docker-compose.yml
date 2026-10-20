@@ -3,13 +3,25 @@ services:
     build: .
     image: latex-editor:local
     ports:
-      # Local only: reachable from this machine, not the network.
+      # Local only. To use it from other machines, put an HTTPS reverse proxy in front (see README).
       - "127.0.0.1:${HOST_PORT:-14738}:8080"
     volumes:
-      # ./data/projects (your files) and ./data/texmf (packages installed from the UI)
+      # ./data/app.db (accounts), ./data/users (encrypted projects), ./data/texmf (packages installed from the UI)
       - ./data:/data
+    tmpfs:
+      # Decrypted copies of a project exist only here, in memory, while it is being compiled.
+      - /var/lib/latex-editor/builds:size=1g,mode=0700
+    security_opt:
+      - no-new-privileges:true
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       COMPILE_TIMEOUT_MS: 60000
+      # Compiles that run at the same time; others wait their turn.
+      COMPILE_CONCURRENCY: ${COMPILE_CONCURRENCY:-2}
+      # Trust X-Forwarded-For/-Proto from one proxy hop. Right while the port above is bound to
+      # 127.0.0.1, so only your reverse proxy can reach it; set to false if nothing sits in front.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      # Session cookies are HTTPS-only. Plain http://localhost still works in Chrome and Firefox.
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
     restart: unless-stopped

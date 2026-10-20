@@ -1,9 +1,11 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { SessionUser } from './auth.js';
+import { wipeBuild } from './compile.js';
 import { config } from './config.js';
 import { HttpError } from './http.js';
-import { META_FILE, cleanRelPath } from './paths.js';
+import { META_FILE } from './paths.js';
+import { ProjectStore, cleanPath, listUserProjects, type Entry } from './storage.js';
 
 export const ENGINES = ['pdflatex', 'xelatex', 'lualatex'] as const;
 export type Engine = (typeof ENGINES)[number];
@@ -40,103 +42,69 @@ export function isEditable(file: string): boolean {
   return TEXT_EXTENSIONS.has(path.extname(base).slice(1));
 }
 
-const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-
-export function projectDir(id: string): string {
-  if (!ID_RE.test(id)) throw new HttpError(404, 'Project not found');
-  return path.join(config.projectsDir, id);
+export function listProjects(user: SessionUser): Promise<ProjectMeta[]> {
+  return listUserProjects(user);
 }
 
-export function buildDir(id: string): string {
-  projectDir(id);
-  return path.join(config.buildsDir, id);
+export async function getProject(user: SessionUser, id: string): Promise<ProjectMeta & { files: FileEntry[] }> {
+  const store = await ProjectStore.open(user, id);
+  await store.gc();
+  const { meta, entries } = await store.snapshot();
+  return { ...meta, files: toFileEntries(entries) };
 }
 
-export async function getProject(id: string): Promise<ProjectMeta> {
-  try {
-    const raw = await fs.readFile(path.join(projectDir(id), META_FILE), 'utf8');
-    return { ...JSON.parse(raw), id };
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw new HttpError(404, 'Project not found');
-    throw err;
-  }
-}
-
-async function writeMeta(meta: ProjectMeta): Promise<void> {
-  const { id, ...rest } = meta;
-  await fs.writeFile(path.join(projectDir(id), META_FILE), JSON.stringify(rest, null, 2));
-}
-
-export async function listProjects(): Promise<ProjectMeta[]> {
-  const entries = await fs.readdir(config.projectsDir, { withFileTypes: true });
-  const metas = await Promise.all(
-    entries
-      .filter((e) => e.isDirectory() && ID_RE.test(e.name))
-      .map((e) => getProject(e.name).catch(() => null)),
+function toFileEntries(entries: [string, Entry][]): FileEntry[] {
+  return entries.map(([p, e]) =>
+    e.type === 'dir'
+      ? { path: p, type: 'dir', size: 0, editable: false }
+      : { path: p, type: 'file', size: e.size, editable: isEditable(p) },
   );
-  return metas
-    .filter((m): m is ProjectMeta => m !== null)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-function newId(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  return `${slug || 'project'}-${crypto.randomBytes(3).toString('hex')}`;
-}
-
-export async function createProject(name: string, template?: TemplateId): Promise<ProjectMeta> {
-  const trimmed = name.trim() || 'Untitled';
-  const id = newId(trimmed);
-  const dir = projectDir(id);
-  await fs.mkdir(dir, { recursive: true });
-  if (template) await fs.cp(path.join(config.templatesDir, template), dir, { recursive: true });
+export async function createProject(user: SessionUser, name: string, template?: TemplateId): Promise<ProjectMeta> {
   const now = new Date().toISOString();
-  const meta: ProjectMeta = {
-    id,
-    name: trimmed,
+  const store = await ProjectStore.create(user, {
+    name: name.trim() || 'Untitled',
     engine: 'pdflatex',
     mainFile: 'main.tex',
     createdAt: now,
     updatedAt: now,
-  };
-  await writeMeta(meta);
-  return meta;
+  });
+  if (template) await store.writeMany(readDiskFiles(path.join(config.templatesDir, template)));
+  return store.meta();
 }
 
 export async function updateProject(
+  user: SessionUser,
   id: string,
   patch: { name?: unknown; engine?: unknown; mainFile?: unknown },
 ): Promise<ProjectMeta> {
-  const meta = await getProject(id);
-  if (patch.name !== undefined) meta.name = String(patch.name).trim() || meta.name;
-  if (patch.engine !== undefined) {
-    if (!ENGINES.includes(patch.engine as Engine)) throw new HttpError(400, 'Unknown engine');
-    meta.engine = patch.engine as Engine;
+  const store = await ProjectStore.open(user, id);
+  if (patch.engine !== undefined && !ENGINES.includes(patch.engine as Engine)) {
+    throw new HttpError(400, 'Unknown engine');
   }
-  if (patch.mainFile !== undefined) meta.mainFile = cleanRelPath(projectDir(id), String(patch.mainFile));
-  meta.updatedAt = new Date().toISOString();
-  await writeMeta(meta);
-  return meta;
+  const mainFile = patch.mainFile !== undefined ? cleanPath(String(patch.mainFile)) : undefined;
+  return store.updateMeta((meta) => {
+    if (patch.name !== undefined) meta.name = String(patch.name).trim() || meta.name;
+    if (patch.engine !== undefined) meta.engine = patch.engine as Engine;
+    if (mainFile !== undefined) meta.mainFile = mainFile;
+  });
 }
 
-export async function touchProject(id: string): Promise<void> {
-  const meta = await getProject(id);
-  meta.updatedAt = new Date().toISOString();
-  await writeMeta(meta);
+export async function deleteProject(user: SessionUser, id: string): Promise<void> {
+  const store = await ProjectStore.open(user, id);
+  await store.destroy();
+  await wipeBuild(user.id, id);
 }
 
-export async function deleteProject(id: string): Promise<void> {
-  await getProject(id);
-  await fs.rm(projectDir(id), { recursive: true, force: true });
-  await fs.rm(buildDir(id), { recursive: true, force: true });
+/** Files under a folder on disk as [path, content] pairs, read one at a time. */
+export async function* readDiskFiles(root: string): AsyncGenerator<[string, Buffer]> {
+  for (const f of await listFiles(root)) {
+    if (f.type === 'file') yield [f.path, await fs.readFile(path.join(root, f.path))];
+  }
 }
 
-/** All files and folders under `root`, as sorted project-relative paths. Symlinks are skipped. */
+/** All files and folders under `root` on disk, as sorted relative paths. Symlinks are skipped. */
 export async function listFiles(root: string): Promise<FileEntry[]> {
   const out: FileEntry[] = [];
   async function walk(rel: string): Promise<void> {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'reac
 import { api, type ProjectMeta } from '../api';
 import NewProjectDialog from '../components/NewProjectDialog';
 import PackageModal from '../components/PackageModal';
+import UserMenu from '../components/UserMenu';
 import { navigate } from '../hooks';
 
 const ENGINE_LABEL = { pdflatex: 'pdfLaTeX', xelatex: 'XeLaTeX', lualatex: 'LuaLaTeX' } as const;
@@ -63,6 +64,7 @@ export default function ProjectList() {
             Packages
           </button>
           <input ref={importRef} type="file" accept=".zip,application/zip" hidden onChange={onImport} />
+          <UserMenu />
         </div>
       </header>
 

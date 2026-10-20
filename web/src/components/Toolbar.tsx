@@ -1,4 +1,5 @@
 import { pdfDownloadUrl, zipUrl, type Engine, type ProjectMeta } from '../api';
+import UserMenu from './UserMenu';
 
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error';
 
@@ -19,6 +20,8 @@ interface Props {
   onEngineChange: (engine: Engine) => void;
   onRename: () => void;
   onOpenPackages: () => void;
+  /** Save pending edits before logging out. */
+  onBeforeLogout: () => Promise<void>;
 }
 
 export default function Toolbar(props: Props) {
@@ -67,6 +70,7 @@ export default function Toolbar(props: Props) {
       <button className="btn" onClick={props.onOpenPackages}>
         Packages
       </button>
+      <UserMenu beforeLogout={props.onBeforeLogout} />
     </header>
   );
 }

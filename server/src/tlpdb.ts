@@ -143,7 +143,8 @@ async function loadIndex(): Promise<PackageIndex> {
  */
 async function downloadTlpdb(): Promise<string> {
   const url = `${config.tlRepo}/tlpkg/texlive.tlpdb.xz`;
-  const wget = spawn('wget', ['-qO-', url], { stdio: ['ignore', 'pipe', 'inherit'] });
+  // Short timeout and few retries, so an offline machine gets an error instead of a long hang.
+  const wget = spawn('wget', ['-q', '--timeout=20', '--tries=2', '-O-', url], { stdio: ['ignore', 'pipe', 'inherit'] });
   const xz = spawn('xz', ['-dc'], { stdio: ['pipe', 'pipe', 'inherit'] });
   wget.stdout.pipe(xz.stdin);
   const chunks: Buffer[] = [];
@@ -154,7 +155,13 @@ async function downloadTlpdb(): Promise<string> {
       child.on('close', resolve);
     });
   const [wgetCode, xzCode] = await Promise.all([exit(wget), exit(xz)]);
-  if (wgetCode !== 0) throw new Error(`Could not download the package index from ${url} (wget exit ${wgetCode})`);
+  if (wgetCode !== 0) {
+    throw new Error(
+      `Could not download the package index from ${url} (wget exit ${wgetCode}). ` +
+        'Installing packages needs an internet connection. Offline, add packages to ' +
+        'docker/tl-packages.txt and rebuild the image on a connected machine.',
+    );
+  }
   if (xzCode !== 0) throw new Error(`The package index from ${url} is not a valid .xz file`);
   return Buffer.concat(chunks).toString('utf8');
 }

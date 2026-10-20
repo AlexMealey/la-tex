@@ -311,6 +311,7 @@ export default function EditorPage({ projectId }: { projectId: string }) {
         onEngineChange={changeEngine}
         onRename={renameProject}
         onOpenPackages={() => setPackageModal({})}
+        onBeforeLogout={save}
       />
       {actionError && (
         <div className="banner error dismissible">

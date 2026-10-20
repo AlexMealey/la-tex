@@ -63,8 +63,32 @@ export interface Job {
   log: string;
 }
 
+export interface Me {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+}
+
+export interface AdminUser extends Me {
+  disabled: boolean;
+  createdAt: number;
+  lastSeenAt: number | null;
+}
+
+export interface Invite {
+  id: number;
+  isAdmin: boolean;
+  createdAt: number;
+  expiresAt: number;
+  createdBy: string | null;
+}
+
+/** Dispatched on `window` when the server says we're not logged in (e.g. the session expired). */
+export const AUTH_REQUIRED_EVENT = 'auth-required';
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
+  if (res.status === 401) window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
@@ -92,6 +116,30 @@ export const pdfDownloadUrl = (id: string) => `${project(id)}/pdf?download=1`;
 export const zipUrl = (id: string) => `${project(id)}/zip`;
 
 export const api = {
+  me: () => request<{ user: Me | null }>('/api/auth/me').then((r) => r.user),
+  login: (username: string, password: string) =>
+    request<{ user: Me }>('/api/auth/login', json('POST', { username, password })).then((r) => r.user),
+  logout: () => request<unknown>('/api/auth/logout', { method: 'POST' }),
+  inviteInfo: (token: string) =>
+    request<{ valid: boolean; isAdmin: boolean }>(`/api/auth/invite?token=${encodeURIComponent(token)}`),
+  register: (invite: string, username: string, password: string) =>
+    request<{ user: Me; recoveryCode: string }>('/api/auth/register', json('POST', { invite, username, password })),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ recoveryCode: string }>('/api/auth/password', json('POST', { currentPassword, newPassword })),
+  recover: (username: string, recoveryCode: string, newPassword: string) =>
+    request<{ user: Me; recoveryCode: string }>('/api/auth/recover', json('POST', { username, recoveryCode, newPassword })),
+
+  admin: {
+    users: () => request<AdminUser[]>('/api/admin/users'),
+    setDisabled: (id: string, disabled: boolean) =>
+      request<unknown>(`/api/admin/users/${encodeURIComponent(id)}`, json('PATCH', { disabled })),
+    deleteUser: (id: string) => request<unknown>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    invites: () => request<Invite[]>('/api/admin/invites'),
+    createInvite: (isAdmin: boolean) =>
+      request<Invite & { token: string }>('/api/admin/invites', json('POST', { isAdmin })),
+    revokeInvite: (id: number) => request<unknown>(`/api/admin/invites/${id}`, { method: 'DELETE' }),
+  },
+
   listProjects: () => request<ProjectMeta[]>('/api/projects'),
   createProject: (name: string, template: TemplateId) =>
     request<ProjectMeta>('/api/projects', json('POST', { name, template })),

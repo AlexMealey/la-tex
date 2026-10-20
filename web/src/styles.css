@@ -881,3 +881,106 @@ a:focus-visible {
     display: none;
   }
 }
+
+/* ---- Accounts ---- */
+
+.auth-page {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
+}
+.auth-card {
+  width: min(420px, 100%);
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.08);
+}
+.auth-card h1 {
+  margin: 0;
+  font-size: 22px;
+}
+.auth-card h2 {
+  margin: 4px 0 18px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.auth-card .btn.primary {
+  justify-content: center;
+}
+.auth-card p {
+  margin: 0;
+}
+.field-block small {
+  font-size: 12.5px;
+}
+.mono {
+  font-family: var(--mono);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.check input {
+  accent-color: var(--accent);
+}
+.recovery-code {
+  display: block;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 16px;
+  letter-spacing: 0.05em;
+  text-align: center;
+  word-break: break-all;
+  user-select: all;
+}
+
+.user-menu {
+  position: relative;
+}
+.user-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+.user-menu-list .btn {
+  justify-content: flex-start;
+}
+
+.admin-section {
+  margin-bottom: 32px;
+}
+.admin-section h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.admin-section .project-table {
+  margin-top: 12px;
+}
+.admin-section > p {
+  margin-top: 10px;
+}
+.invite-banner {
+  flex-wrap: wrap;
+}
+.invite-link {
+  flex: 1;
+  min-width: 260px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}

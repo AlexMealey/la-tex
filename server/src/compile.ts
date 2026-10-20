@@ -1,11 +1,15 @@
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { SessionUser } from './auth.js';
 import { config } from './config.js';
 import { HttpError } from './http.js';
+import { createLimiter } from './limit.js';
 import { parseLog, type LogEntry } from './logParser.js';
 import { safeJoin } from './paths.js';
-import { buildDir, getProject, listFiles, projectDir, type Engine } from './projects.js';
+import type { Engine } from './projects.js';
+import { ProjectStore, type Entry } from './storage.js';
 
 export interface CompileResult {
   status: 'success' | 'error' | 'timeout';
@@ -24,83 +28,168 @@ const ENGINE_FLAGS: Record<Engine, string> = {
   lualatex: '-lualatex',
 };
 
-const SYNC_MANIFEST = '.synced-files.json';
+/**
+ * Decrypted sources, aux files and output.pdf for one project, in a randomly named folder under
+ * BUILDS_DIR (a tmpfs in Docker, so plaintext never reaches the disk). Dropped on logout, on
+ * "Clear cache", after an hour unused, and at startup.
+ */
+interface Build {
+  dir: string;
+  /** Project path → blob id last decrypted into `dir`. */
+  synced: Map<string, string>;
+  lastUsed: number;
+}
+
+const BUILD_IDLE_MS = 60 * 60_000;
+const builds = new Map<string, Build>();
 const running = new Set<string>();
+const compileLimit = createLimiter(config.compileConcurrency);
 
-export async function compileProject(id: string): Promise<CompileResult> {
-  const meta = await getProject(id);
-  if (running.has(id)) throw new HttpError(409, 'A compile is already running for this project');
-  running.add(id);
-  const started = Date.now();
-  try {
-    const build = buildDir(id);
-    await fs.mkdir(build, { recursive: true });
-    await syncProject(projectDir(id), build);
+const buildKey = (userId: string, projectId: string) => `${userId}/${projectId}`;
 
-    const main = await fs.stat(safeJoin(build, meta.mainFile)).catch(() => null);
-    if (!main?.isFile()) throw new HttpError(400, `Main file "${meta.mainFile}" does not exist`);
+/** Empty BUILDS_DIR, then make it unlistable (write + search only) so a TeX run can't find other builds. */
+export async function initBuildsDir(): Promise<void> {
+  await fs.mkdir(config.buildsDir, { recursive: true });
+  await fs.chmod(config.buildsDir, 0o700);
+  for (const name of await fs.readdir(config.buildsDir)) {
+    await fs.rm(path.join(config.buildsDir, name), { recursive: true, force: true });
+  }
+  await fs.chmod(config.buildsDir, 0o300);
+}
 
-    // -norc: a project latexmkrc is Perl code, so it is never read.
-    // -g: always run, even with unchanged sources (e.g. a just-installed package fixes a failed run).
-    const args = [
-      '-norc',
-      ENGINE_FLAGS[meta.engine],
-      '-g',
-      '-f',
-      '-interaction=nonstopmode',
-      '-file-line-error',
-      '-synctex=0',
-      '-jobname=output',
-      meta.mainFile,
-    ];
-    const run = await runLatexmk(args, build, config.compileTimeoutMs);
-
-    const log = await fs.readFile(path.join(build, 'output.log'), 'utf8').catch(() => run.output);
-    const parsed = parseLog(log, build);
-    if (!run.timedOut && run.code !== 0 && parsed.errors.length === 0) {
-      parsed.errors.push({
-        level: 'error',
-        file: null,
-        line: null,
-        message: `latexmk exited with code ${run.code}\n${run.output.slice(-2000)}`,
-      });
+export function startBuildSweeper(): void {
+  setInterval(() => {
+    const cutoff = Date.now() - BUILD_IDLE_MS;
+    for (const [key, build] of builds) {
+      if (build.lastUsed >= cutoff || running.has(key)) continue;
+      builds.delete(key);
+      fs.rm(build.dir, { recursive: true, force: true }).catch((err) => console.error(err));
     }
-    const pdf = await fs.stat(path.join(build, 'output.pdf')).then(() => true, () => false);
-    return {
-      status: run.timedOut ? 'timeout' : parsed.errors.length ? 'error' : 'success',
-      durationMs: Date.now() - started,
-      ...parsed,
-      pdf,
-      compiledAt: Date.now(),
-    };
+  }, 5 * 60_000).unref();
+}
+
+/** Delete one project's build folder, or all of a user's. */
+export async function wipeBuild(userId: string, projectId?: string): Promise<void> {
+  const keys = projectId
+    ? [buildKey(userId, projectId)]
+    : [...builds.keys()].filter((k) => k.startsWith(`${userId}/`));
+  await Promise.all(
+    keys.map(async (key) => {
+      const build = builds.get(key);
+      builds.delete(key);
+      if (build) await fs.rm(build.dir, { recursive: true, force: true });
+    }),
+  );
+}
+
+/** Path to output.pdf or output.log from the last compile, or null if there is no build. */
+export function buildOutput(userId: string, projectId: string, file: 'output.pdf' | 'output.log'): string | null {
+  const build = builds.get(buildKey(userId, projectId));
+  if (!build) return null;
+  build.lastUsed = Date.now();
+  return path.join(build.dir, file);
+}
+
+export async function compileProject(user: SessionUser, id: string): Promise<CompileResult> {
+  const store = await ProjectStore.open(user, id);
+  const key = buildKey(user.id, id);
+  if (running.has(key)) throw new HttpError(409, 'A compile is already running for this project');
+  running.add(key);
+  try {
+    return await compileLimit(async () => {
+      const started = Date.now();
+      const { meta, entries } = await store.snapshot();
+      let build = builds.get(key);
+      if (!build) {
+        build = { dir: path.join(config.buildsDir, crypto.randomBytes(16).toString('hex')), synced: new Map(), lastUsed: 0 };
+        builds.set(key, build);
+      }
+      build.lastUsed = Date.now();
+      await fs.mkdir(build.dir, { recursive: true, mode: 0o700 });
+      await syncFromStore(store, entries, build);
+
+      const main = await fs.stat(safeJoin(build.dir, meta.mainFile)).catch(() => null);
+      if (!main?.isFile()) throw new HttpError(400, `Main file "${meta.mainFile}" does not exist`);
+
+      // -norc: a project latexmkrc is Perl code, so it is never read.
+      // -g: always run, even with unchanged sources (e.g. a just-installed package fixes a failed run).
+      const args = [
+        '-norc',
+        ENGINE_FLAGS[meta.engine],
+        '-g',
+        '-f',
+        '-interaction=nonstopmode',
+        '-file-line-error',
+        '-synctex=0',
+        '-jobname=output',
+        meta.mainFile,
+      ];
+      const run = await runLatexmk(args, build.dir, config.compileTimeoutMs, texEnv(meta.engine));
+      build.lastUsed = Date.now();
+
+      const log = await fs.readFile(path.join(build.dir, 'output.log'), 'utf8').catch(() => run.output);
+      const parsed = parseLog(log, build.dir);
+      if (!run.timedOut && run.code !== 0 && parsed.errors.length === 0) {
+        parsed.errors.push({
+          level: 'error',
+          file: null,
+          line: null,
+          message: `latexmk exited with code ${run.code}\n${run.output.slice(-2000)}`,
+        });
+      }
+      const pdf = await fs.stat(path.join(build.dir, 'output.pdf')).then(() => true, () => false);
+      return {
+        status: run.timedOut ? 'timeout' : parsed.errors.length ? 'error' : 'success',
+        durationMs: Date.now() - started,
+        ...parsed,
+        pdf,
+        compiledAt: Date.now(),
+      };
+    });
   } finally {
-    running.delete(id);
+    running.delete(key);
   }
 }
 
 /**
- * Copy changed project files into the persistent build folder, keeping latexmk's aux files.
+ * Decrypt changed project files into the build folder, keeping latexmk's aux files.
+ * Every write makes a new blob, so a changed blob id means changed content.
  * Files deleted from the project since the last sync are removed from the build folder too.
  */
-async function syncProject(src: string, dst: string): Promise<void> {
-  const files = (await listFiles(src)).filter((f) => f.type === 'file').map((f) => f.path);
-  const previous: string[] = await fs
-    .readFile(path.join(dst, SYNC_MANIFEST), 'utf8')
-    .then((raw) => JSON.parse(raw), () => []);
-  const current = new Set(files);
-  for (const rel of previous) {
-    if (!current.has(rel)) await fs.rm(safeJoin(dst, rel), { force: true });
+async function syncFromStore(store: ProjectStore, entries: [string, Entry][], build: Build): Promise<void> {
+  const current = new Map<string, string>();
+  for (const [p, e] of entries) if (e.type === 'file') current.set(p, e.blob);
+  for (const rel of [...build.synced.keys()]) {
+    if (current.has(rel)) continue;
+    await fs.rm(safeJoin(build.dir, rel), { force: true });
+    build.synced.delete(rel);
   }
-  for (const rel of files) {
-    const from = path.join(src, rel);
-    const to = path.join(dst, rel);
-    const [a, b] = await Promise.all([fs.stat(from), fs.stat(to).catch(() => null)]);
-    if (b && b.size === a.size && Math.trunc(b.mtimeMs) === Math.trunc(a.mtimeMs)) continue;
+  for (const [rel, blob] of current) {
+    if (build.synced.get(rel) === blob) continue;
+    const to = safeJoin(build.dir, rel);
     await fs.mkdir(path.dirname(to), { recursive: true });
-    await fs.copyFile(from, to);
-    await fs.utimes(to, a.atime, a.mtime);
+    await fs.writeFile(to, await store.read(rel));
+    build.synced.set(rel, blob);
   }
-  await fs.writeFile(path.join(dst, SYNC_MANIFEST), JSON.stringify(files));
+}
+
+// Only what TeX needs: nothing else from the server's environment reaches a document.
+const ENV_KEEP = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TEXMFHOME', 'TEXMFVAR', 'TEXMFCONFIG', 'SOURCE_DATE_EPOCH'];
+
+function texEnv(engine: Engine): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const name of ENV_KEEP) if (process.env[name] !== undefined) env[name] = process.env[name];
+  return {
+    ...env,
+    // Stop TeX hard-wrapping log lines at 79 columns so messages parse cleanly.
+    max_print_line: '10000',
+    error_line: '254',
+    half_error_line: '238',
+    // "Paranoid": no absolute paths or "..", so a document can't read or write files outside its
+    // build folder. LuaLaTeX's font loader opens fonts by absolute path, so it keeps the default for reading.
+    openout_any: 'p',
+    openin_any: engine === 'lualatex' ? 'a' : 'p',
+  };
 }
 
 interface RunResult {
@@ -109,14 +198,13 @@ interface RunResult {
   output: string;
 }
 
-function runLatexmk(args: string[], cwd: string, timeoutMs: number): Promise<RunResult> {
+function runLatexmk(args: string[], cwd: string, timeoutMs: number, env: NodeJS.ProcessEnv): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('latexmk', args, {
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // Stop TeX hard-wrapping log lines at 79 columns so messages parse cleanly.
-      env: { ...process.env, max_print_line: '10000', error_line: '254', half_error_line: '238' },
+      env,
     });
     let output = '';
     const append = (chunk: Buffer) => {
