@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import multer from 'multer';
 import { ensureBootstrapInvite, loadSession, requireAuth, sweepSessions } from './auth.js';
-import { initBuildsDir, startBuildSweeper } from './compile.js';
+import { initBuildsDir, initSandbox, startBuildSweeper } from './compile.js';
 import { config } from './config.js';
 import { HttpError } from './http.js';
 import { adminRouter } from './routes/admin.js';
@@ -16,6 +16,7 @@ import { csrfGuard, securityHeaders } from './security.js';
 
 await fs.mkdir(config.usersDir, { recursive: true, mode: 0o700 });
 await initBuildsDir();
+await initSandbox();
 startBuildSweeper();
 setInterval(sweepSessions, 10 * 60_000).unref();
 ensureBootstrapInvite();

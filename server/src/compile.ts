@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { SessionUser } from './auth.js';
@@ -42,6 +43,7 @@ interface Build {
 
 const BUILD_IDLE_MS = 60 * 60_000;
 const builds = new Map<string, Build>();
+let sandboxed = false;
 const running = new Set<string>();
 const compileLimit = createLimiter(config.compileConcurrency);
 
@@ -55,6 +57,52 @@ export async function initBuildsDir(): Promise<void> {
     await fs.rm(path.join(config.buildsDir, name), { recursive: true, force: true });
   }
   await fs.chmod(config.buildsDir, 0o300);
+}
+
+// Landlock access rights, as named by util-linux setpriv.
+const READ = 'execute,read-file,read-dir';
+const WRITE = `${READ},write-file,remove-dir,remove-file,make-dir,make-reg,make-sym,refer,truncate`;
+
+/**
+ * A compile may read the system and TeX Live, write TeX's caches and its own build folder, and
+ * nothing else: not app.db, not the encrypted projects, not other users' build folders. Enforced
+ * by the kernel (Landlock) through setpriv. TeX's own openin_any setting no longer restricts
+ * reading as of TeX Live 2026.
+ */
+function sandboxArgs(buildDir: string): string[] {
+  const rules: [string, string | undefined][] = [
+    [READ, '/usr'],
+    [READ, '/etc'],
+    [READ, config.tlRoot],
+    [READ, config.texmfUserDir],
+    [READ, config.texmfHome],
+    [WRITE, process.env.TEXMFVAR],
+    [WRITE, process.env.TEXMFCONFIG],
+    ['read-file,write-file', '/dev'],
+    [WRITE, buildDir],
+  ];
+  const args = ['--landlock-access', 'fs'];
+  for (const [access, dir] of rules) {
+    if (dir && existsSync(dir)) args.push('--landlock-rule', `path-beneath:${access}:${dir}`);
+  }
+  return [...args, '--'];
+}
+
+/** Use the sandbox when the kernel and setpriv support it, and say so either way. */
+export async function initSandbox(): Promise<void> {
+  sandboxed = await new Promise<boolean>((resolve) => {
+    const child = spawn('setpriv', [...sandboxArgs(config.buildsDir), 'true'], { stdio: 'ignore' });
+    child.on('error', () => resolve(false));
+    child.on('close', (code) => resolve(code === 0));
+  });
+  if (sandboxed) {
+    console.log('Compile sandbox: on (Landlock)');
+  } else {
+    console.warn(
+      'WARNING: compile sandbox unavailable (needs a Linux kernel with Landlock and util-linux setpriv 2.40+). ' +
+        'TeX documents can read any file this server can, including app.db.',
+    );
+  }
 }
 
 export function startBuildSweeper(): void {
@@ -124,7 +172,7 @@ export async function compileProject(user: SessionUser, id: string): Promise<Com
         '-jobname=output',
         meta.mainFile,
       ];
-      const run = await runLatexmk(args, build.dir, config.compileTimeoutMs, texEnv(meta.engine));
+      const run = await runLatexmk(args, build.dir, config.compileTimeoutMs, texEnv());
       build.lastUsed = Date.now();
 
       const log = await fs.readFile(path.join(build.dir, 'output.log'), 'utf8').catch(() => run.output);
@@ -176,7 +224,7 @@ async function syncFromStore(store: ProjectStore, entries: [string, Entry][], bu
 // Only what TeX needs: nothing else from the server's environment reaches a document.
 const ENV_KEEP = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TEXMFHOME', 'TEXMFVAR', 'TEXMFCONFIG', 'SOURCE_DATE_EPOCH'];
 
-function texEnv(engine: Engine): NodeJS.ProcessEnv {
+function texEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const name of ENV_KEEP) if (process.env[name] !== undefined) env[name] = process.env[name];
   return {
@@ -185,10 +233,8 @@ function texEnv(engine: Engine): NodeJS.ProcessEnv {
     max_print_line: '10000',
     error_line: '254',
     half_error_line: '238',
-    // "Paranoid": no absolute paths or "..", so a document can't read or write files outside its
-    // build folder. LuaLaTeX's font loader opens fonts by absolute path, so it keeps the default for reading.
+    // No writing to absolute paths, ".." or dot files (reading is limited by the sandbox instead).
     openout_any: 'p',
-    openin_any: engine === 'lualatex' ? 'a' : 'p',
   };
 }
 
@@ -200,7 +246,8 @@ interface RunResult {
 
 function runLatexmk(args: string[], cwd: string, timeoutMs: number, env: NodeJS.ProcessEnv): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn('latexmk', args, {
+    const [command, argv] = sandboxed ? ['setpriv', [...sandboxArgs(cwd), 'latexmk', ...args]] : ['latexmk', args];
+    const child = spawn(command, argv, {
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],

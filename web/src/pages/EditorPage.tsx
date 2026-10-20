@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import {
+  AUTH_RESTORED_EVENT,
   api,
   fileUrl,
   pdfUrl,
@@ -138,6 +139,13 @@ export default function EditorPage({ projectId }: { projectId: string }) {
 
   // Leaving the editor (e.g. back to the project list): flush pending edits.
   useEffect(() => () => void save().catch(() => {}), [save]);
+
+  // Logged back in after the session expired: save what failed to save meanwhile.
+  useEffect(() => {
+    const retry = () => void save().catch(fail);
+    window.addEventListener(AUTH_RESTORED_EVENT, retry);
+    return () => window.removeEventListener(AUTH_RESTORED_EVENT, retry);
+  }, [save]);
 
   const onChange = useCallback(
     (content: string) => {

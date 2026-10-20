@@ -191,14 +191,20 @@ Settings (environment variables in `docker-compose.yml`, or a `.env` file next t
 - **The server operator can read logged-in users' files.** Someone who controls the running server
   (root on the host, or a modified image) could capture passwords or session keys as people use it.
   The encryption protects data at rest, not against the server itself.
-- **Users should trust each other.** TeX runs as the same Unix user as the server. pdfLaTeX and XeLaTeX
-  can't open absolute paths or `..` (`openin_any=p`). LuaLaTeX can't be restricted that way without
-  breaking its font loading, so a malicious LuaLaTeX document could read server files. That includes
-  `app.db`, whose password hashes could then be attacked offline, and another user's project while it
-  is being compiled. Only invite people you trust, and on the host keep the kernel default
-  `kernel.yama.ptrace_scope` of 1 or more.
+- **Compiling relies on a kernel sandbox.** TeX runs as the same Unix user as the server, and TeX Live
+  no longer restricts which files a document may read (`openin_any` is a no-op since 2026). Each
+  compile is therefore sandboxed with Linux [Landlock](https://docs.kernel.org/userspace-api/landlock.html)
+  (through `setpriv`). It may read the system and TeX Live, and write TeX's caches and its own build
+  folder, and nothing else. So a document can't read `app.db`, the encrypted projects, or another
+  user's build folder. The log says `Compile sandbox: on (Landlock)` at startup.
+  - If it instead warns that the sandbox is unavailable, the kernel has no Landlock (it needs Linux
+    5.13 or later with Landlock enabled, as on current Debian, Ubuntu and Fedora).
+  - Without the sandbox, a malicious document could read `app.db` (and attack its password hashes
+    offline) or another user's project while it compiles. Only run like that with users who trust
+    each other.
 
 **Compiling.**
+- Documents can't write outside their build folder (`openout_any=p`, plus the sandbox above).
 - A project's `latexmkrc` is **ignored** (`latexmk -norc`), because it is Perl code that would run on
   every compile.
 - Shell escape stays at TeX Live's restricted default, so `minted` and other packages that need full

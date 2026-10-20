@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AUTH_REQUIRED_EVENT, api, type Me } from './api';
+import { AUTH_REQUIRED_EVENT, AUTH_RESTORED_EVENT, api, type Me } from './api';
 import { AuthContext, parseHash, type Auth } from './auth';
 import Modal from './components/Modal';
 import RecoveryCodeDialog from './components/RecoveryCodeDialog';
@@ -79,7 +79,13 @@ export default function App() {
         <Modal title="Session expired" onClose={() => {}}>
           <div className="stack">
             <p className="muted">Log in again to carry on. Your open work is kept.</p>
-            <LoginForm username={auth.user.username} onSignedIn={() => setExpired(false)} />
+            <LoginForm
+              username={auth.user.username}
+              onSignedIn={() => {
+                setExpired(false);
+                window.dispatchEvent(new Event(AUTH_RESTORED_EVENT));
+              }}
+            />
             <button className="link small" onClick={() => logout()}>
               Log out instead
             </button>

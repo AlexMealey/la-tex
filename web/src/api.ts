@@ -85,6 +85,8 @@ export interface Invite {
 
 /** Dispatched on `window` when the server says we're not logged in (e.g. the session expired). */
 export const AUTH_REQUIRED_EVENT = 'auth-required';
+/** Dispatched on `window` after logging back in from an expired session. */
+export const AUTH_RESTORED_EVENT = 'auth-restored';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
