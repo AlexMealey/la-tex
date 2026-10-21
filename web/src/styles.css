@@ -559,13 +559,85 @@ a:focus-visible {
 .code-editor {
   flex: 1;
   min-height: 0;
-  font-size: 13.5px;
 }
 .code-editor .cm-editor {
   height: 100%;
 }
 .code-editor .cm-scroller {
   font-family: var(--mono);
+}
+.editor-toolbar {
+  flex-wrap: wrap;
+  gap: 2px;
+  row-gap: 2px;
+}
+.editor-toolbar .btn.small {
+  min-width: 28px;
+  justify-content: center;
+}
+.editor-toolbar .btn.mono {
+  font-family: var(--mono);
+}
+.editor-toolbar .btn.active {
+  background: var(--surface-2);
+}
+.editor-toolbar code {
+  font: inherit;
+  font-family: var(--mono);
+}
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 4px;
+  background: var(--border);
+}
+.heading-select {
+  padding: 2px 6px;
+  font-size: 12.5px;
+}
+.symbol-picker {
+  position: relative;
+}
+.symbol-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+}
+.symbol-popover h4 {
+  margin: 6px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+  gap: 2px;
+}
+.symbol {
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+}
+.symbol:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
 }
 .divider {
   width: 6px;
@@ -700,7 +772,8 @@ a:focus-visible {
   min-width: 0;
   background: var(--pdf-bg);
 }
-.pdf-toolbar {
+.pdf-toolbar,
+.editor-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
