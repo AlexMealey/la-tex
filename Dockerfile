@@ -61,8 +61,11 @@ COPY --from=build /app/web/dist server/public
 COPY server/templates server/templates
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
+# DATA_DIR holds app.db (accounts) and users/ (encrypted projects). PROJECTS_DIR is only read once,
+# to import projects from before accounts existed. BUILDS_DIR should be a tmpfs (see docker-compose.yml).
 ENV NODE_ENV=production \
     PORT=8080 \
+    DATA_DIR=/data \
     PROJECTS_DIR=/data/projects \
     BUILDS_DIR=/var/lib/latex-editor/builds
 EXPOSE 8080

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type Job, type PackageState, type PackageView } from '../api';
+import { useAuth } from '../auth';
 import Modal from './Modal';
 
 interface Props {
@@ -16,8 +17,10 @@ const STATUS_LABEL: Record<PackageView['status'], string> = {
 };
 
 export default function PackageModal({ onClose, autoInstall, onJobFinished }: Props) {
-  const [tab, setTab] = useState<'search' | 'installed'>(autoInstall ? 'installed' : 'search');
-  const [query, setQuery] = useState('');
+  // Packages go into one tree shared by every user, so only admins change it.
+  const canInstall = useAuth().user.isAdmin;
+  const [tab, setTab] = useState<'search' | 'installed'>(autoInstall && canInstall ? 'installed' : 'search');
+  const [query, setQuery] = useState(!canInstall && autoInstall?.length ? autoInstall[0] : '');
   const [results, setResults] = useState<PackageView[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [state, setState] = useState<PackageState | null>(null);
@@ -63,11 +66,11 @@ export default function PackageModal({ onClose, autoInstall, onJobFinished }: Pr
   }, []);
 
   useEffect(() => {
-    if (autoInstall?.length && !autoStarted.current) {
+    if (canInstall && autoInstall?.length && !autoStarted.current) {
       autoStarted.current = true;
       start('install', autoInstall);
     }
-  }, [autoInstall, start]);
+  }, [canInstall, autoInstall, start]);
 
   // Poll the running job; refresh lists when it finishes.
   useEffect(() => {
@@ -99,13 +102,13 @@ export default function PackageModal({ onClose, autoInstall, onJobFinished }: Pr
       </div>
       <div className="package-action">
         {p.status !== 'available' && <span className={`tag ${p.status}`}>{STATUS_LABEL[p.status]}</span>}
-        {p.status === 'available' && p.installable && (
+        {canInstall && p.status === 'available' && p.installable && (
           <button className="btn small primary" disabled={busy} onClick={() => start('install', [p.name])}>
             Install
           </button>
         )}
         {p.status === 'available' && !p.installable && <span className="tag warn">Needs image rebuild</span>}
-        {p.status === 'user' && tab === 'installed' && (
+        {canInstall && p.status === 'user' && tab === 'installed' && (
           <button className="btn small" disabled={busy} onClick={() => start('remove', [p.name])}>
             Remove
           </button>
@@ -126,6 +129,13 @@ export default function PackageModal({ onClose, autoInstall, onJobFinished }: Pr
       </div>
 
       {error && <div className="banner error">{error}</div>}
+      {!canInstall && (
+        <div className="banner info">
+          {autoInstall?.length
+            ? `Ask an admin to install ${autoInstall.join(', ')}: only admins can add packages.`
+            : 'Only admins can install or remove packages. Ask an admin for the ones you need.'}
+        </div>
+      )}
 
       {tab === 'search' && (
         <div className="stack">
@@ -152,9 +162,11 @@ export default function PackageModal({ onClose, autoInstall, onJobFinished }: Pr
                 {state.missingFromManifest.length} package(s) you installed under an earlier TeX Live release are not
                 installed in {state.tlYear}: {state.missingFromManifest.join(', ')}.
               </span>
-              <button className="btn small" disabled={busy} onClick={() => start('install', state.missingFromManifest)}>
-                Reinstall all
-              </button>
+              {canInstall && (
+                <button className="btn small" disabled={busy} onClick={() => start('install', state.missingFromManifest)}>
+                  Reinstall all
+                </button>
+              )}
             </div>
           )}
           {state && state.installed.length === 0 && (

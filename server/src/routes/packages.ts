@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireAdmin } from '../auth.js';
 import { config } from '../config.js';
 import { HttpError, param } from '../http.js';
 import { getJob, readManifest, startJob } from '../tlmgr.js';
@@ -28,7 +29,8 @@ packagesRouter.get('/which', async (req, res) => {
   res.json(await packagesForFile(String(req.query.file ?? '')));
 });
 
-packagesRouter.post('/install', async (req, res) => {
+// Packages go into one tree shared by every user, so only admins change it.
+packagesRouter.post('/install', requireAdmin, async (req, res) => {
   const names: unknown = req.body?.names;
   if (!Array.isArray(names) || !names.length) throw new HttpError(400, 'Expected { names: [...] }');
   const list = names.map(String);
@@ -36,12 +38,12 @@ packagesRouter.post('/install', async (req, res) => {
   res.status(202).json(startJob('install', list));
 });
 
-packagesRouter.post('/remove', async (req, res) => {
+packagesRouter.post('/remove', requireAdmin, async (req, res) => {
   const name = String(req.body?.name ?? '');
   if (!name) throw new HttpError(400, 'Expected { name }');
   res.status(202).json(startJob('remove', [name]));
 });
 
-packagesRouter.get('/jobs/:jobId', (req, res) => {
+packagesRouter.get('/jobs/:jobId', requireAdmin, (req, res) => {
   res.json(getJob(param(req, 'jobId')));
 });
