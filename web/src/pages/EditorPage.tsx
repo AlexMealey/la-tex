@@ -16,6 +16,7 @@ import LogPanel from '../components/LogPanel';
 import PackageModal from '../components/PackageModal';
 import PdfPreview from '../components/PdfPreview';
 import Toolbar, { type SaveState } from '../components/Toolbar';
+import { bibKeysIn } from '../latexCommands';
 
 interface OpenFile {
   path: string;
@@ -95,6 +96,12 @@ export default function EditorPage({ projectId }: { projectId: string }) {
     },
     [projectId, save],
   );
+
+  const loadCiteKeys = useCallback(async () => {
+    const bibs = (projectRef.current?.files ?? []).filter((f) => f.type === 'file' && /\.bib$/i.test(f.path));
+    const texts = await Promise.all(bibs.map((f) => api.readFile(projectId, f.path).catch(() => '')));
+    return texts.flatMap(bibKeysIn);
+  }, [projectId]);
 
   const compile = useCallback(async () => {
     if (compilingRef.current) return;
@@ -385,6 +392,7 @@ export default function EditorPage({ projectId }: { projectId: string }) {
                 onChange={onChange}
                 onCompile={compile}
                 jumpTo={jumpTo}
+                loadCiteKeys={loadCiteKeys}
               />
             )}
             {open && !open.editable && (

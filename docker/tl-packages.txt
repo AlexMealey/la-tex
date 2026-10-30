@@ -18,6 +18,7 @@ mweights
 xkeyval
 contour
 ulem
+xcolor
 tex-gyre
 
 # XeLaTeX / LuaLaTeX engine support
