@@ -2,10 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { useStoredState } from '../hooks';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
 
 const RESIZE_SETTLE_MS = 150;
+const clampZoom = (z: number) => Math.min(4, Math.max(0.3, +z.toFixed(2)));
 
 const PAPER_SIZES = [
   { label: 'A4', w: 595.28, h: 841.89 },
@@ -25,7 +27,7 @@ function describePageSize(widthPt: number, heightPt: number) {
 export default function PdfPreview({ url }: { url: string | null }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useStoredState('la-tex.pdfZoom', 1, clampZoom);
   const [numPages, setNumPages] = useState(0);
   const [size, setSize] = useState<ReturnType<typeof describePageSize> | null>(null);
   // Keep the reading position when the PDF is replaced by a recompile.
@@ -94,13 +96,13 @@ export default function PdfPreview({ url }: { url: string | null }) {
           </span>
         )}
         <div className="spacer" />
-        <button className="btn small ghost" onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.1).toFixed(2)))}>
+        <button className="btn small ghost" onClick={() => setZoom((z) => clampZoom(z - 0.1))}>
           −
         </button>
         <button className="btn small ghost" onClick={() => setZoom(1)} title="Fit width">
           {Math.round(zoom * 100)}%
         </button>
-        <button className="btn small ghost" onClick={() => setZoom((z) => Math.min(4, +(z + 0.1).toFixed(2)))}>
+        <button className="btn small ghost" onClick={() => setZoom((z) => clampZoom(z + 0.1))}>
           +
         </button>
       </div>

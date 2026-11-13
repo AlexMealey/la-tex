@@ -975,6 +975,10 @@ a:focus-visible {
 .divider:hover {
   background: var(--accent);
 }
+/* The file sidebar is hidden: the divider stays as the handle to bring it back. */
+.divider.collapsed {
+  cursor: e-resize;
+}
 .pdf-pane {
   flex: 1;
   min-width: 0;

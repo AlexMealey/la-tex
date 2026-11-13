@@ -6,7 +6,7 @@ import { Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import CodeMirror from '@uiw/react-codemirror';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { usePrefersDark } from '../hooks';
+import { usePrefersDark, useStoredState } from '../hooks';
 import {
   SCRIPTS,
   bibitemsIn,
@@ -25,17 +25,7 @@ import EditorToolbar from './EditorToolbar';
 const latex = StreamLanguage.define(stex);
 
 const BASE_FONT_PX = 13.5;
-const ZOOM_KEY = 'la-tex.editorZoom';
 const clampZoom = (z: number) => Math.min(2.5, Math.max(0.5, +z.toFixed(2)));
-
-function loadZoom(): number {
-  try {
-    const z = Number(localStorage.getItem(ZOOM_KEY));
-    return z > 0 ? clampZoom(z) : 1;
-  } catch {
-    return 1;
-  }
-}
 
 interface ToolbarState {
   ctx: FormatContext;
@@ -57,21 +47,13 @@ export default function CodeEditor({ value, onChange, onCompile, jumpTo, loadCit
   const dark = usePrefersDark();
   const viewRef = useRef<EditorView | null>(null);
   const pendingJump = useRef(jumpTo);
-  const [zoom, setZoomState] = useState(loadZoom);
+  const [zoom, setZoomState] = useStoredState('la-tex.editorZoom', 1, clampZoom);
   const [toolbar, setToolbar] = useState<ToolbarState>({ ctx: EMPTY_CONTEXT, canUndo: false, canRedo: false });
   const [linkRequest, setLinkRequest] = useState(0);
   const [missing, setMissing] = useState<Package[]>([]);
   const dismissed = useRef(new Set<Package>());
   const citeKeys = useRef<Promise<string[]> | null>(null);
-  const setZoom = (z: number) => {
-    const next = clampZoom(z);
-    setZoomState(next);
-    try {
-      localStorage.setItem(ZOOM_KEY, String(next));
-    } catch {
-      // Not persisted (private window, blocked storage); the size still applies to this session.
-    }
-  };
+  const setZoom = (z: number) => setZoomState(clampZoom(z));
   const handlers = useRef({ onCompile, zoom, setZoom, loadCiteKeys });
   handlers.current = { onCompile, zoom, setZoom, loadCiteKeys };
 

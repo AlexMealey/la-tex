@@ -16,6 +16,7 @@ import LogPanel from '../components/LogPanel';
 import PackageModal from '../components/PackageModal';
 import PdfPreview from '../components/PdfPreview';
 import Toolbar, { type SaveState } from '../components/Toolbar';
+import { useStoredState } from '../hooks';
 import { bibKeysIn } from '../latexCommands';
 
 interface OpenFile {
@@ -27,6 +28,11 @@ interface OpenFile {
 const IMAGE_EXT = /\.(png|jpe?g|gif|svg|webp|bmp)$/i;
 const AUTOSAVE_MS = 1000;
 const SIDEBAR_WIDTH = 240;
+/** Dragging the sidebar narrower than this hides it. */
+const SIDEBAR_COLLAPSE_PX = 80;
+/** A press on a divider that moves less than this is a click, not a drag. */
+const CLICK_SLOP_PX = 4;
+const clampSplit = (pct: number) => Math.min(80, Math.max(20, pct));
 
 export default function EditorPage({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -41,8 +47,11 @@ export default function EditorPage({ projectId }: { projectId: string }) {
   const [logOpen, setLogOpen] = useState(false);
   const [packageModal, setPackageModal] = useState<{ install?: string[] } | null>(null);
   const [jumpTo, setJumpTo] = useState<{ line: number; nonce: number } | null>(null);
-  const [split, setSplit] = useState(50);
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_WIDTH);
+  const [split, setSplit] = useStoredState('la-tex.split', 50, clampSplit);
+  const [sidebarWidth, setSidebarWidth] = useStoredState('la-tex.sidebarWidth', SIDEBAR_WIDTH, (w) =>
+    Math.max(SIDEBAR_COLLAPSE_PX, w),
+  );
+  const [sidebarHidden, setSidebarHidden] = useStoredState('la-tex.sidebarHidden', false);
 
   const projectRef = useRef(project);
   projectRef.current = project;
@@ -303,28 +312,50 @@ export default function EditorPage({ projectId }: { projectId: string }) {
     [compile],
   );
 
-  // Draggable dividers: sidebar width, and the split between editor and PDF.
+  // Draggable dividers: sidebar width, and the split between editor and PDF. A press that doesn't move is a click.
   function startDrag(
     e: PointerEvent<HTMLDivElement>,
     container: HTMLDivElement | null,
     onMove: (x: number, rect: DOMRect) => void,
+    onClick?: () => void,
   ) {
-    if (!container) return;
+    if (!container || e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const rect = container.getBoundingClientRect();
-    const move = (ev: globalThis.PointerEvent) => onMove(ev.clientX - rect.left, rect);
+    const [startX, startY] = [e.clientX, e.clientY];
+    let dragging = false;
+    const move = (ev: globalThis.PointerEvent) => {
+      dragging ||= Math.hypot(ev.clientX - startX, ev.clientY - startY) > CLICK_SLOP_PX;
+      if (dragging) onMove(ev.clientX - rect.left, rect);
+    };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      if (!dragging) onClick?.();
+    };
+    const cancel = () => {
+      dragging = true;
+      up();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
   }
 
   const startSidebarDrag = (e: PointerEvent<HTMLDivElement>) =>
-    startDrag(e, workspaceRef.current, (x, rect) => setSidebarWidth(Math.min(rect.width / 2, Math.max(0, x))));
+    startDrag(
+      e,
+      workspaceRef.current,
+      (x, rect) => {
+        const hide = x < SIDEBAR_COLLAPSE_PX;
+        setSidebarHidden(hide);
+        if (!hide) setSidebarWidth(Math.min(rect.width / 2, x));
+      },
+      () => setSidebarHidden((h) => !h),
+    );
   const startSplitDrag = (e: PointerEvent<HTMLDivElement>) =>
-    startDrag(e, splitRef.current, (x, rect) => setSplit(Math.min(80, Math.max(20, (x / rect.width) * 100))));
+    startDrag(e, splitRef.current, (x, rect) => setSplit(clampSplit((x / rect.width) * 100)));
 
   if (loadError) {
     return (
@@ -359,7 +390,7 @@ export default function EditorPage({ projectId }: { projectId: string }) {
         </div>
       )}
       <div className="workspace" ref={workspaceRef}>
-        <aside className="sidebar" style={{ width: sidebarWidth }}>
+        <aside className="sidebar" style={{ width: sidebarHidden ? 0 : sidebarWidth }}>
           <FileTree
             files={project.files}
             activePath={open?.path ?? null}
@@ -374,12 +405,11 @@ export default function EditorPage({ projectId }: { projectId: string }) {
           />
         </aside>
         <div
-          className="divider"
+          className={`divider${sidebarHidden ? ' collapsed' : ''}`}
           onPointerDown={startSidebarDrag}
-          onDoubleClick={() => setSidebarWidth(SIDEBAR_WIDTH)}
           role="separator"
           aria-orientation="vertical"
-          title="Drag to resize, double-click to reset"
+          title={sidebarHidden ? 'Click to show files' : 'Click to hide files · drag to resize'}
         />
         <div className="split" ref={splitRef}>
           <section className="editor-pane" style={{ flexBasis: `${split}%` }}>
@@ -408,7 +438,7 @@ export default function EditorPage({ projectId }: { projectId: string }) {
               </div>
             )}
           </section>
-          <div className="divider" onPointerDown={startSplitDrag}role="separator" aria-orientation="vertical" />
+          <div className="divider" onPointerDown={startSplitDrag} role="separator" aria-orientation="vertical" />
           <section className="pdf-pane">
             <PdfPreview url={pdfVersion !== null ? pdfUrl(projectId, pdfVersion) : null} />
           </section>
