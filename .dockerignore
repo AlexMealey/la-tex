@@ -2,3 +2,5 @@
 **/dist
 data
 .git
+.env
+*.tar.gz

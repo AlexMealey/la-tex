@@ -15,11 +15,14 @@ TeX Live 2026, all in one Docker container.
 ## Run
 
 ```sh
+cp .env.example .env   # optional: edit ports, HTTPS and PUID/PGID
 docker compose up --build -d
 ```
 
-The port is only bound to `127.0.0.1`, so the editor isn't reachable from other machines. Use a
-different port with `HOST_PORT=9000 docker compose up -d`, or put `HOST_PORT=9000` in a `.env` file.
+The editor listens on port `14738` on all interfaces. Settings go in `.env` next to
+`docker-compose.yml` (see [`.env.example`](.env.example)), e.g. `HOST_PORT=9000`, or
+`BIND_ADDRESS=127.0.0.1` to keep it local to the machine. For a server, see
+[Hosting on a server](#hosting-on-a-server).
 
 ### First run: create the admin account
 
@@ -152,9 +155,35 @@ can search the catalogue.
 
 ## Hosting on a server
 
-Keep the container bound to `127.0.0.1` and put an HTTPS reverse proxy in front of it. With
-[Caddy](https://caddyserver.com/), which fetches and renews certificates by itself, the whole
-`Caddyfile` is:
+Needs Docker Engine with the Compose plugin, on Linux 5.13 or later (for the
+[compile sandbox](#security)). The first build downloads TeX Live and takes several minutes.
+
+Logging in needs HTTPS (session cookies are HTTPS-only), so pick one of these.
+
+**A. Built-in HTTPS with Caddy** (simplest, if nothing else uses ports 80 and 443):
+
+1. Point a DNS record such as `latex.example.com` at the server, and open ports 80 and 443 in its
+   firewall.
+2. Clone and configure:
+
+   ```sh
+   git clone <repo-url> la-tex && cd la-tex
+   cp .env.example .env
+   ```
+
+   In `.env`, uncomment `COMPOSE_PROFILES=https` and set `DOMAIN=latex.example.com`. Also set
+   `BIND_ADDRESS=127.0.0.1` and `TRUST_PROXY=1`, so the editor is only reachable through Caddy.
+   Set `PUID` / `PGID` to the output of `id -u` / `id -g`.
+3. Start it with `docker compose up --build -d`.
+4. [Create the admin account](#first-run-create-the-admin-account) at `https://latex.example.com`.
+
+The `caddy` service fetches and renews the certificate itself and keeps it in the `caddy_data` volume.
+
+**B. Your own reverse proxy** (nginx, Traefik, an existing Caddy, a Cloudflare tunnel, …): leave
+`COMPOSE_PROFILES` unset, set `BIND_ADDRESS=127.0.0.1` and `TRUST_PROXY=1` in `.env`, and proxy your
+HTTPS site to `http://127.0.0.1:14738`. The proxy must pass `X-Forwarded-For` and
+`X-Forwarded-Proto`, and allow request bodies of at least 50 MB for uploads (nginx:
+`client_max_body_size 50m;`). With a host-level Caddy the whole `Caddyfile` is:
 
 ```
 latex.example.com {
@@ -162,14 +191,36 @@ latex.example.com {
 }
 ```
 
-Settings (environment variables in `docker-compose.yml`, or a `.env` file next to it):
+**Exposing the port directly.** With the defaults (`BIND_ADDRESS=0.0.0.0`, `TRUST_PROXY=false`) port
+14738 is open to the network. Docker's published ports bypass `ufw`/`firewalld` rules, so firewall it
+at your provider, or bind to `127.0.0.1` as above. Keep `TRUST_PROXY=false` in this setup: otherwise
+clients can fake their IP in `X-Forwarded-For` and dodge login throttling.
+
+**Updating:**
+
+```sh
+git pull
+docker compose up --build -d
+```
+
+Accounts, projects and installed packages live in `./data` and are kept. Back it up first (see
+[Backups](#backups)).
+
+Settings (in `.env`; [`.env.example`](.env.example) lists them all):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TRUST_PROXY` | `1` | Trust one proxy hop for the client IP (login throttling) and HTTPS detection (HSTS). Set to `false` if the port is reachable without the proxy. |
+| `BIND_ADDRESS` | `0.0.0.0` | Interface the port is published on. `127.0.0.1` makes it reachable only from the host (e.g. its reverse proxy). |
+| `HOST_PORT` | `14738` | Port on the host. |
+| `TRUST_PROXY` | `false` | Proxy hops to trust for the client IP (login throttling) and HTTPS detection (HSTS). Set to `1` behind one reverse proxy, but only when the port can't be reached without it. |
 | `COOKIE_SECURE` | `true` | HTTPS-only session cookies. Only set `false` to serve plain HTTP to other machines, which sends passwords unencrypted. |
+| `COMPOSE_PROFILES` / `DOMAIN` | unset | `https` and your domain name start the built-in Caddy HTTPS proxy. |
+| `PUID` / `PGID` | `1000` / `1000` | Owner of the files in `./data`. |
 | `COMPILE_CONCURRENCY` | `2` | Compiles running at once; more wait their turn. |
+| `COMPILE_TIMEOUT_MS` | `60000` | Compiles are killed after this long. |
 | `SESSION_IDLE_DAYS` / `SESSION_MAX_DAYS` | `7` / `30` | Log out after this long unused / this long in total. |
+
+Container logs are rotated (3 × 10 MB per service).
 
 ## Security
 

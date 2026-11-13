@@ -1,10 +1,17 @@
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   latex-editor:
     build: .
     image: latex-editor:local
     ports:
-      # Local only. To use it from other machines, put an HTTPS reverse proxy in front (see README).
-      - "127.0.0.1:${HOST_PORT:-14738}:8080"
+      # Listens on all interfaces by default. Set BIND_ADDRESS=127.0.0.1 when a reverse proxy on the
+      # host sits in front, so the editor is only reachable through it.
+      - "${BIND_ADDRESS:-0.0.0.0}:${HOST_PORT:-14738}:8080"
     volumes:
       # ./data/app.db (accounts), ./data/users (encrypted projects), ./data/texmf (packages installed from the UI)
       - ./data:/data
@@ -13,15 +20,44 @@ services:
       - /var/lib/latex-editor/builds:size=1g,mode=0700
     security_opt:
       - no-new-privileges:true
+    # Reaps TeX processes left behind by killed compiles and forwards SIGTERM to the server.
+    init: true
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
-      COMPILE_TIMEOUT_MS: 60000
+      COMPILE_TIMEOUT_MS: ${COMPILE_TIMEOUT_MS:-60000}
       # Compiles that run at the same time; others wait their turn.
       COMPILE_CONCURRENCY: ${COMPILE_CONCURRENCY:-2}
-      # Trust X-Forwarded-For/-Proto from one proxy hop. Right while the port above is bound to
-      # 127.0.0.1, so only your reverse proxy can reach it; set to false if nothing sits in front.
-      TRUST_PROXY: ${TRUST_PROXY:-1}
-      # Session cookies are HTTPS-only. Plain http://localhost still works in Chrome and Firefox.
+      # Trust X-Forwarded-For/-Proto from this many proxy hops. Only set it (usually to 1) when the
+      # editor can't be reached without going through the proxy, or clients can spoof their IP.
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      # Session cookies are HTTPS-only, so logging in over plain http:// only works on localhost.
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SESSION_IDLE_DAYS: ${SESSION_IDLE_DAYS:-7}
+      SESSION_MAX_DAYS: ${SESSION_MAX_DAYS:-30}
+    logging: *logging
     restart: unless-stopped
+
+  # Optional HTTPS front end with automatic Let's Encrypt certificates.
+  # Enable it with COMPOSE_PROFILES=https and DOMAIN=... in .env (see .env.example).
+  caddy:
+    image: caddy:2-alpine
+    profiles: [https]
+    depends_on:
+      - latex-editor
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    logging: *logging
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
